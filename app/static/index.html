@@ -293,6 +293,31 @@
 
         <div class="controls-grid">
             <div>
+                <label for="language-select">Target Language</label>
+                <select id="language-select">
+                    <option value="">🌐 Default (Voice Setting)</option>
+                    <option value="fi">🇫🇮 Finnish (fi)</option>
+                    <option value="en">🇬🇧 English (en)</option>
+                    <option value="zh">🇨🇳 Chinese (zh)</option>
+                    <option value="es">🇪🇸 Spanish (es)</option>
+                    <option value="de">🇩🇪 German (de)</option>
+                    <option value="fr">🇫🇷 French (fr)</option>
+                    <option value="ja">🇯🇵 Japanese (ja)</option>
+                    <option value="ko">🇰🇷 Korean (ko)</option>
+                    <option value="it">🇮🇹 Italian (it)</option>
+                    <option value="ru">🇷🇺 Russian (ru)</option>
+                    <option value="pt">🇵🇹 Portuguese (pt)</option>
+                    <option value="sv">🇸🇪 Swedish (sv)</option>
+                    <option value="no">🇳🇴 Norwegian (no)</option>
+                    <option value="da">🇩🇰 Danish (da)</option>
+                    <option value="et">🇪🇪 Estonian (et)</option>
+                    <option value="pl">🇵🇱 Polish (pl)</option>
+                    <option value="nl">🇳🇱 Dutch (nl)</option>
+                    <option value="tr">🇹🇷 Turkish (tr)</option>
+                </select>
+            </div>
+
+            <div>
                 <label for="speed-range">Speed Factor</label>
                 <div class="range-container">
                     <input type="range" id="speed-range" min="0.5" max="2.0" step="0.1" value="1.0" oninput="document.getElementById('speed-val').innerText = this.value">
@@ -352,6 +377,33 @@
     <script>
         let voicesList = [];
 
+        const languageFlags = {
+            'fi': '🇫🇮',
+            'en': '🇬🇧',
+            'zh': '🇨🇳',
+            'es': '🇪🇸',
+            'de': '🇩🇪',
+            'fr': '🇫🇷',
+            'ja': '🇯🇵',
+            'ko': '🇰🇷',
+            'it': '🇮🇹',
+            'ru': '🇷🇺',
+            'pt': '🇵🇹',
+            'sv': '🇸🇪',
+            'no': '🇳🇴',
+            'da': '🇩🇰',
+            'et': '🇪🇪',
+            'pl': '🇵🇱',
+            'nl': '🇳🇱',
+            'tr': '🇹🇷'
+        };
+
+        function getFlag(langCode) {
+            if (!langCode) return '🌐';
+            const clean = langCode.toLowerCase().trim();
+            return languageFlags[clean] || '🌐';
+        }
+
         async function fetchVoices() {
             try {
                 const res = await fetch('/api/v1/voices');
@@ -369,7 +421,9 @@
                 voicesList.forEach(v => {
                     const opt = document.createElement('option');
                     opt.value = v.voice_id;
-                    opt.textContent = `${v.voice_id} ${v.settings.language ? '['+v.settings.language+']' : ''}`;
+                    const lang = v.settings && v.settings.language ? v.settings.language : '';
+                    const flag = getFlag(lang);
+                    opt.textContent = `${flag} ${v.voice_id} ${lang ? '['+lang+']' : ''}`;
                     select.appendChild(opt);
                 });
 
@@ -390,7 +444,9 @@
             if (voice) {
                 const transcriptText = voice.transcript ? `"${voice.transcript}"` : 'No .txt file found';
                 const settingsText = JSON.stringify(voice.settings);
-                panelText.innerHTML = `<strong>Transcript:</strong> ${transcriptText} <br/><strong>Custom Settings:</strong> <code>${settingsText}</code>`;
+                const voiceLang = voice.settings && voice.settings.language ? voice.settings.language : 'Not specified';
+                const flag = getFlag(voiceLang);
+                panelText.innerHTML = `<strong>Language:</strong> ${flag} ${voiceLang} <br/><strong>Transcript:</strong> ${transcriptText} <br/><strong>Custom Settings:</strong> <code>${settingsText}</code>`;
             } else {
                 panelText.innerText = 'No voice selected.';
             }
@@ -399,6 +455,7 @@
         async function generateSpeech() {
             const voice = document.getElementById('voice-select').value;
             const text = document.getElementById('input-text').value;
+            const language = document.getElementById('language-select').value;
             const speed = parseFloat(document.getElementById('speed-range').value);
             const num_step = parseInt(document.getElementById('step-range').value);
             const guidance_scale = parseFloat(document.getElementById('guidance-range').value);
@@ -421,18 +478,23 @@
             spinner.style.display = 'block';
             label.innerText = 'Synthesizing...';
 
+            const payload = {
+                text: text,
+                voice: voice,
+                speed: speed,
+                num_step: num_step,
+                guidance_scale: guidance_scale,
+                response_format: response_format
+            };
+            if (language) {
+                payload.language = language;
+            }
+
             try {
                 const response = await fetch('/api/v1/tts', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        text: text,
-                        voice: voice,
-                        speed: speed,
-                        num_step: num_step,
-                        guidance_scale: guidance_scale,
-                        response_format: response_format
-                    })
+                    body: JSON.stringify(payload)
                 });
 
                 if (!response.ok) {
