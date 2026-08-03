@@ -2,7 +2,8 @@ import asyncio
 import io
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+import re
+from typing import Dict, Any, Optional, Tuple, List
 import numpy as np
 import soundfile as sf
 import torch
@@ -11,6 +12,94 @@ from app.config import config
 from app.voice_manager import VoiceMetadata
 
 logger = logging.getLogger(__name__)
+
+
+def split_text_into_chunks(text: str, max_chars: int = 100, max_sentences: int = 2) -> List[str]:
+    """
+    Splits input text into chunks containing at most `max_sentences` sentences
+    and at most `max_chars` characters per chunk.
+    """
+    text = text.strip()
+    if not text:
+        return []
+
+    # 1. Split text into sentences (preserving punctuation)
+    raw_sentences = re.split(r'(?<=[.!?\n])\s+', text)
+    sentences = [s.strip() for s in raw_sentences if s.strip()]
+
+    if not sentences:
+        return []
+
+    # 2. Break down any sentence exceeding max_chars into smaller clause/word sub-units
+    units: List[Tuple[str, bool]] = []  # List of (sub_unit_text, is_sentence_end)
+    for s in sentences:
+        if len(s) <= max_chars:
+            units.append((s, True))
+        else:
+            # Sub-split long sentence by secondary punctuation like commas, semicolons, colons, dashes
+            clauses = re.split(r'(?<=[,;:\-—])\s+', s)
+            clauses = [c.strip() for c in clauses if c.strip()]
+
+            sub_units: List[str] = []
+            for clause in clauses:
+                if len(clause) <= max_chars:
+                    sub_units.append(clause)
+                else:
+                    # Sub-split long clause by word boundaries
+                    words = clause.split()
+                    curr_words: List[str] = []
+                    curr_len = 0
+                    for w in words:
+                        needed = len(w) if not curr_words else len(w) + 1
+                        if curr_len + needed <= max_chars:
+                            curr_words.append(w)
+                            curr_len += needed
+                        else:
+                            if curr_words:
+                                sub_units.append(" ".join(curr_words))
+                            # Handle single word exceeding max_chars
+                            while len(w) > max_chars:
+                                sub_units.append(w[:max_chars])
+                                w = w[max_chars:]
+                            curr_words = [w]
+                            curr_len = len(w)
+                    if curr_words:
+                        sub_units.append(" ".join(curr_words))
+
+            for idx, sub_unit in enumerate(sub_units):
+                is_end = (idx == len(sub_units) - 1)
+                units.append((sub_unit, is_end))
+
+    # 3. Group units into chunks satisfying max_chars and max_sentences
+    chunks: List[str] = []
+    curr_chunk: List[str] = []
+    curr_len = 0
+    curr_sentences = 0
+
+    for unit_text, is_sentence_end in units:
+        unit_len = len(unit_text)
+        space_len = 1 if curr_chunk else 0
+
+        would_exceed_chars = (curr_len + space_len + unit_len > max_chars)
+        would_exceed_sentences = (curr_sentences >= max_sentences)
+
+        if would_exceed_chars or would_exceed_sentences:
+            if curr_chunk:
+                chunks.append(" ".join(curr_chunk))
+                curr_chunk = []
+                curr_len = 0
+                curr_sentences = 0
+
+        curr_chunk.append(unit_text)
+        curr_len += (1 if len(curr_chunk) > 1 else 0) + unit_len
+        if is_sentence_end:
+            curr_sentences += 1
+
+    if curr_chunk:
+        chunks.append(" ".join(curr_chunk))
+
+    return chunks
+
 
 class ModelManager:
     def __init__(self):
@@ -121,40 +210,56 @@ class ModelManager:
             # Check prompt cache
             cached_prompt = await self.get_or_create_prompt(voice_meta)
 
-            gen_kwargs = {
-                "text": text,
+            chunks = split_text_into_chunks(text, max_chars=100, max_sentences=2)
+            if not chunks:
+                chunks = [text]
+
+            logger.info(f"Synthesizing text for voice '{voice_meta.voice_id}' split into {len(chunks)} chunk(s): {chunks}")
+
+            base_kwargs = {
                 "speed": float(final_speed),
                 "num_step": int(final_num_step),
                 "guidance_scale": float(final_guidance_scale)
             }
 
             if final_language:
-                gen_kwargs["language"] = final_language
+                base_kwargs["language"] = final_language
 
             if cached_prompt is not None:
-                gen_kwargs["voice_clone_prompt"] = cached_prompt
+                base_kwargs["voice_clone_prompt"] = cached_prompt
             else:
-                gen_kwargs["ref_audio"] = str(voice_meta.audio_path)
+                base_kwargs["ref_audio"] = str(voice_meta.audio_path)
                 if voice_meta.transcript:
-                    gen_kwargs["ref_text"] = voice_meta.transcript
+                    base_kwargs["ref_text"] = voice_meta.transcript
 
-            logger.info(f"Synthesizing text for voice '{voice_meta.voice_id}': '{text[:30]}...' with params {gen_kwargs}")
-
+            audio_chunks = []
             loop = asyncio.get_running_loop()
-            output_audio = await loop.run_in_executor(None, lambda: self.model.generate(**gen_kwargs))
+
+            for chunk_idx, chunk_text in enumerate(chunks):
+                gen_kwargs = dict(base_kwargs)
+                gen_kwargs["text"] = chunk_text
+
+                logger.info(f"Generating chunk {chunk_idx + 1}/{len(chunks)} ({len(chunk_text)} chars): '{chunk_text}'")
+
+                output_audio = await loop.run_in_executor(None, lambda kw=gen_kwargs: self.model.generate(**kw))
+
+                audio_data = output_audio[0] if isinstance(output_audio, (tuple, list)) else output_audio
+                if isinstance(audio_data, torch.Tensor):
+                    audio_data = audio_data.detach().cpu().numpy()
+
+                if audio_data.ndim > 1:
+                    audio_data = np.squeeze(audio_data)
+
+                audio_chunks.append(audio_data)
+
+            if len(audio_chunks) == 1:
+                combined_audio = audio_chunks[0]
+            else:
+                combined_audio = np.concatenate(audio_chunks)
 
         # Format output audio
         sr = 24000  # Default sampling rate for OmniVoice
-        audio_data = output_audio[0] if isinstance(output_audio, (tuple, list)) else output_audio
-
-        if isinstance(audio_data, torch.Tensor):
-            audio_data = audio_data.detach().cpu().numpy()
-
-        if audio_data.ndim > 1:
-            audio_data = np.squeeze(audio_data)
-
-        # Convert to requested format bytes
-        audio_bytes, mime_type = self._encode_audio(audio_data, sr, response_format)
+        audio_bytes, mime_type = self._encode_audio(combined_audio, sr, response_format)
         return audio_bytes, mime_type
 
     def _encode_audio(self, audio_data: np.ndarray, samplerate: int, fmt: str) -> Tuple[bytes, str]:
