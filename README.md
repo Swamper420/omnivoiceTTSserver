@@ -107,7 +107,8 @@ Once the server is running, open your web browser and navigate to:
   "speed": 1.0,
   "num_step": 32,
   "guidance_scale": 2.0,
-  "response_format": "wav"
+  "response_format": "wav",
+  "seed": 42
 }
 ```
 
