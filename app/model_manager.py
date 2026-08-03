@@ -263,34 +263,74 @@ class ModelManager:
         return audio_bytes, mime_type
 
     def _encode_audio(self, audio_data: np.ndarray, samplerate: int, fmt: str) -> Tuple[bytes, str]:
+        import tempfile
         fmt = fmt.lower().strip()
-        buffer = io.BytesIO()
+        
+        # Ensure float32 audio data is finite and normalized within [-1.0, 1.0] to prevent codec clipping/overflow
+        audio_data = np.nan_to_num(audio_data, nan=0.0, posinf=1.0, neginf=-1.0)
+        audio_data = np.clip(audio_data, -1.0, 1.0)
         audio_data = np.ascontiguousarray(audio_data, dtype=np.float32)
+
+        buffer = io.BytesIO()
 
         if fmt in {"wav", "wave"}:
             sf.write(buffer, audio_data, samplerate, format="WAV")
-            mime_type = "audio/wav"
+            buffer.seek(0)
+            return buffer.read(), "audio/wav"
+
         elif fmt in {"flac"}:
             sf.write(buffer, audio_data, samplerate, format="FLAC")
-            mime_type = "audio/flac"
-        elif fmt in {"ogg", "opus"}:
-            sf.write(buffer, audio_data, samplerate, format="OGG")
-            mime_type = "audio/ogg"
-        elif fmt in {"mp3"}:
-            # Write wav buffer first, fallback to WAV if mp3 writer not available in soundfile
+            buffer.seek(0)
+            return buffer.read(), "audio/flac"
+
+        elif fmt in {"ogg", "opus", "vorbis"}:
+            # CRITICAL: libsndfile has a known C segfault bug when writing OGG Vorbis into in-memory io.BytesIO buffers via sf_virtual_io.
+            # Writing to a real temporary file handle uses libsndfile's native C FILE* implementation, avoiding the crash.
+            tmp_path = None
             try:
-                sf.write(buffer, audio_data, samplerate, format="MP3")
-                mime_type = "audio/mpeg"
-            except Exception:
-                logger.warning("Soundfile MP3 format write failed, falling back to WAV output.")
+                with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp_file:
+                    tmp_path = Path(tmp_file.name)
+                
+                sf.write(tmp_path, audio_data, samplerate, format="OGG", subtype="VORBIS")
+                audio_bytes = tmp_path.read_bytes()
+                return audio_bytes, "audio/ogg"
+            except Exception as e:
+                logger.warning(f"Soundfile OGG format export failed ({e}), falling back to WAV output.")
                 buffer = io.BytesIO()
                 sf.write(buffer, audio_data, samplerate, format="WAV")
-                mime_type = "audio/wav"
-            else:
-                sf.write(buffer, audio_data, samplerate, format="WAV")
-                mime_type = "audio/wav"
+                buffer.seek(0)
+                return buffer.read(), "audio/wav"
+            finally:
+                if tmp_path and tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except Exception:
+                        pass
 
+        elif fmt in {"mp3"}:
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                    tmp_path = Path(tmp_file.name)
+                sf.write(tmp_path, audio_data, samplerate, format="MP3")
+                audio_bytes = tmp_path.read_bytes()
+                return audio_bytes, "audio/mpeg"
+            except Exception as e:
+                logger.warning(f"Soundfile MP3 format export failed ({e}), falling back to WAV output.")
+                buffer = io.BytesIO()
+                sf.write(buffer, audio_data, samplerate, format="WAV")
+                buffer.seek(0)
+                return buffer.read(), "audio/wav"
+            finally:
+                if tmp_path and tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except Exception:
+                        pass
+
+        # Default fallback to WAV
+        sf.write(buffer, audio_data, samplerate, format="WAV")
         buffer.seek(0)
-        return buffer.read(), mime_type
+        return buffer.read(), "audio/wav"
 
 model_manager = ModelManager()
