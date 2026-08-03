@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import io
 import logging
 from pathlib import Path
@@ -163,16 +164,38 @@ class ModelManager:
         if hasattr(self.model, "create_voice_clone_prompt") and voice_meta.transcript:
             try:
                 logger.info(f"Pre-computing voice clone prompt for voice '{voice_id}'...")
-                prompt = self.model.create_voice_clone_prompt(
-                    ref_audio=str(voice_meta.audio_path),
-                    ref_text=voice_meta.transcript
-                )
+                loop = asyncio.get_running_loop()
+                def _create_prompt():
+                    with torch.inference_mode():
+                        return self.model.create_voice_clone_prompt(
+                            ref_audio=str(voice_meta.audio_path),
+                            ref_text=voice_meta.transcript
+                        )
+                prompt = await loop.run_in_executor(None, _create_prompt)
                 self.prompt_cache[voice_id] = prompt
                 return prompt
             except Exception as e:
                 logger.warning(f"Could not pre-compute voice clone prompt for '{voice_id}': {e}. Fallback to direct ref_audio.")
                 return None
         return None
+
+    def _generate_single_chunk(self, gen_kwargs: dict):
+        with torch.inference_mode():
+            output_audio = self.model.generate(**gen_kwargs)
+        
+        audio_data = output_audio[0] if isinstance(output_audio, (tuple, list)) else output_audio
+        if isinstance(audio_data, torch.Tensor):
+            audio_data = audio_data.detach().cpu().numpy()
+
+        if audio_data.ndim > 1:
+            audio_data = np.squeeze(audio_data)
+
+        # Free PyTorch CUDA cache and trigger garbage collection between chunks to prevent memory leaks/segfaults
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+
+        return audio_data
 
     async def synthesize(
         self,
@@ -241,15 +264,7 @@ class ModelManager:
 
                 logger.info(f"Generating chunk {chunk_idx + 1}/{len(chunks)} ({len(chunk_text)} chars): '{chunk_text}'")
 
-                output_audio = await loop.run_in_executor(None, lambda kw=gen_kwargs: self.model.generate(**kw))
-
-                audio_data = output_audio[0] if isinstance(output_audio, (tuple, list)) else output_audio
-                if isinstance(audio_data, torch.Tensor):
-                    audio_data = audio_data.detach().cpu().numpy()
-
-                if audio_data.ndim > 1:
-                    audio_data = np.squeeze(audio_data)
-
+                audio_data = await loop.run_in_executor(None, lambda kw=gen_kwargs: self._generate_single_chunk(kw))
                 audio_chunks.append(audio_data)
 
             if len(audio_chunks) == 1:
