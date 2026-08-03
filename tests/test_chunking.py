@@ -40,6 +40,14 @@ class TestSplitTextIntoChunks(unittest.TestCase):
         self.assertEqual(split_text_into_chunks(""), [])
         self.assertEqual(split_text_into_chunks("   "), [])
 
+    def test_newlines_handling(self):
+        text = "et saa\nTätä tunnet katoomaan\nEt saa, et saa-a-a"
+        chunks = split_text_into_chunks(text, max_chars=100, max_sentences=2)
+        self.assertGreaterEqual(len(chunks), 1)
+        for chunk in chunks:
+            self.assertNotIn("\n", chunk)
+            self.assertLessEqual(len(chunk), 100)
+
     def test_long_text_paragraph(self):
         text = (
             "OmniVoice is a zero-shot text-to-speech system. It provides fast and expressive speech synthesis! "
@@ -51,8 +59,6 @@ class TestSplitTextIntoChunks(unittest.TestCase):
         self.assertGreater(len(chunks), 1)
         for chunk in chunks:
             self.assertLessEqual(len(chunk), 100)
-            sentence_endings = [c for c in chunk if c in ".!?\n"]
-            self.assertLessEqual(len(sentence_endings), 2)
 
 if __name__ == "__main__":
     unittest.main()

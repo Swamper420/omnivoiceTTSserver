@@ -20,12 +20,13 @@ def split_text_into_chunks(text: str, max_chars: int = 100, max_sentences: int =
     Splits input text into chunks containing at most `max_sentences` sentences
     and at most `max_chars` characters per chunk.
     """
-    text = text.strip()
+    # Normalize newlines to spaces to prevent raw newline tokens in model generation
+    text = re.sub(r'[\r\n]+', ' ', text).strip()
     if not text:
         return []
 
     # 1. Split text into sentences (preserving punctuation)
-    raw_sentences = re.split(r'(?<=[.!?\n])\s+', text)
+    raw_sentences = re.split(r'(?<=[.!?])\s+', text)
     sentences = [s.strip() for s in raw_sentences if s.strip()]
 
     if not sentences:
@@ -179,16 +180,20 @@ class ModelManager:
                 return None
         return None
 
-    def _generate_single_chunk(self, gen_kwargs: dict):
+    def _generate_single_chunk(self, gen_kwargs: dict) -> np.ndarray:
         with torch.inference_mode():
             output_audio = self.model.generate(**gen_kwargs)
         
         audio_data = output_audio[0] if isinstance(output_audio, (tuple, list)) else output_audio
         if isinstance(audio_data, torch.Tensor):
-            audio_data = audio_data.detach().cpu().numpy()
+            audio_data = audio_data.detach().to(dtype=torch.float32).cpu().numpy()
+        else:
+            audio_data = np.asarray(audio_data, dtype=np.float32)
 
         if audio_data.ndim > 1:
             audio_data = np.squeeze(audio_data)
+
+        audio_data = np.ascontiguousarray(audio_data, dtype=np.float32)
 
         # Free PyTorch CUDA cache and trigger garbage collection between chunks to prevent memory leaks/segfaults
         if torch.cuda.is_available():
@@ -270,7 +275,9 @@ class ModelManager:
             if len(audio_chunks) == 1:
                 combined_audio = audio_chunks[0]
             else:
-                combined_audio = np.concatenate(audio_chunks)
+                combined_audio = np.concatenate(audio_chunks, axis=0)
+
+            combined_audio = np.ascontiguousarray(combined_audio, dtype=np.float32)
 
         # Format output audio
         sr = 24000  # Default sampling rate for OmniVoice
@@ -280,6 +287,7 @@ class ModelManager:
     def _encode_audio(self, audio_data: np.ndarray, samplerate: int, fmt: str) -> Tuple[bytes, str]:
         fmt = fmt.lower().strip()
         buffer = io.BytesIO()
+        audio_data = np.ascontiguousarray(audio_data, dtype=np.float32)
 
         if fmt in {"wav", "wave"}:
             sf.write(buffer, audio_data, samplerate, format="WAV")
@@ -300,9 +308,9 @@ class ModelManager:
                 buffer = io.BytesIO()
                 sf.write(buffer, audio_data, samplerate, format="WAV")
                 mime_type = "audio/wav"
-        else:
-            sf.write(buffer, audio_data, samplerate, format="WAV")
-            mime_type = "audio/wav"
+            else:
+                sf.write(buffer, audio_data, samplerate, format="WAV")
+                mime_type = "audio/wav"
 
         buffer.seek(0)
         return buffer.read(), mime_type
