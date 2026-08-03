@@ -1,4 +1,6 @@
 import asyncio
+import concurrent.futures
+import copy
 import gc
 import io
 import logging
@@ -66,6 +68,11 @@ class ModelManager:
         self.is_loaded = False
         self.prompt_cache: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        # Single persistent thread for all PyTorch/CUDA execution to guarantee CUDA context thread safety
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="omnivoice_model"
+        )
 
     def get_torch_dtype(self) -> torch.dtype:
         dt = config.dtype.lower()
@@ -129,7 +136,7 @@ class ModelManager:
                             ref_audio=str(voice_meta.audio_path),
                             ref_text=voice_meta.transcript
                         )
-                prompt = await loop.run_in_executor(None, _create_prompt)
+                prompt = await loop.run_in_executor(self._executor, _create_prompt)
                 self.prompt_cache[voice_id] = prompt
                 return prompt
             except Exception as e:
@@ -151,13 +158,16 @@ class ModelManager:
             audio_data = np.squeeze(audio_data)
 
         audio_data = np.ascontiguousarray(audio_data, dtype=np.float32)
-
-        # Free PyTorch CUDA cache and trigger garbage collection between chunks to prevent memory leaks/segfaults
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()
-
         return audio_data
+
+    def _cleanup_cuda(self) -> None:
+        """Helper to safely empty CUDA memory cache and force garbage collection after synthesis."""
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+        except Exception as e:
+            logger.debug(f"CUDA memory cleanup warning: {e}")
 
     async def synthesize(
         self,
@@ -174,8 +184,10 @@ class ModelManager:
         Synthesizes text using specified voice_meta and generation options.
         Returns tuple of (audio_bytes, mime_type).
         """
+        loop = asyncio.get_running_loop()
+
         if not self.is_loaded or self.model is None:
-            self.load_model()
+            await loop.run_in_executor(self._executor, self.load_model)
 
         # Merge parameters with hierarchy: Request explicit > Voice JSON/YAML > Server defaults
         voice_settings = voice_meta.settings or {}
@@ -218,16 +230,25 @@ class ModelManager:
                     base_kwargs["ref_text"] = voice_meta.transcript
 
             audio_chunks = []
-            loop = asyncio.get_running_loop()
 
-            for chunk_idx, chunk_text in enumerate(chunks):
-                gen_kwargs = dict(base_kwargs)
-                gen_kwargs["text"] = chunk_text
+            try:
+                for chunk_idx, chunk_text in enumerate(chunks):
+                    gen_kwargs = dict(base_kwargs)
+                    gen_kwargs["text"] = chunk_text
 
-                logger.info(f"Generating chunk {chunk_idx + 1}/{len(chunks)} ({len(chunk_text)} chars): '{chunk_text}'")
+                    if "voice_clone_prompt" in gen_kwargs and gen_kwargs["voice_clone_prompt"] is not None:
+                        try:
+                            gen_kwargs["voice_clone_prompt"] = copy.deepcopy(gen_kwargs["voice_clone_prompt"])
+                        except Exception:
+                            pass
 
-                audio_data = await loop.run_in_executor(None, lambda kw=gen_kwargs: self._generate_single_chunk(kw))
-                audio_chunks.append(audio_data)
+                    logger.info(f"Generating chunk {chunk_idx + 1}/{len(chunks)} ({len(chunk_text)} chars): '{chunk_text}'")
+
+                    audio_data = await loop.run_in_executor(self._executor, lambda kw=gen_kwargs: self._generate_single_chunk(kw))
+                    audio_chunks.append(audio_data)
+            finally:
+                # Flush CUDA memory cache once after entire multi-chunk synthesis completes
+                await loop.run_in_executor(self._executor, self._cleanup_cuda)
 
             if len(audio_chunks) == 1:
                 combined_audio = audio_chunks[0]
