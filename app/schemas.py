@@ -9,6 +9,7 @@ class TTSRequest(BaseModel):
     num_step: Optional[int] = Field(None, description="Number of diffusion generation steps (e.g. 16-40)", example=32)
     guidance_scale: Optional[float] = Field(None, description="CFG guidance scale for prompt adherence", example=2.0)
     response_format: Optional[str] = Field("wav", description="Audio container format ('wav', 'mp3', 'ogg', 'flac')", example="wav")
+    disable_chunking: Optional[bool] = Field(False, description="Bypass/disable text chunking and synthesize full text as one single segment", example=False)
     seed: Optional[int] = Field(None, description="Random seed for deterministic generation")
 
 class OpenAITTSRequest(BaseModel):

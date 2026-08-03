@@ -178,7 +178,8 @@ class ModelManager:
         num_step: Optional[int] = None,
         guidance_scale: Optional[float] = None,
         response_format: str = "wav",
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        disable_chunking: bool = False
     ) -> Tuple[bytes, str]:
         """
         Synthesizes text using specified voice_meta and generation options.
@@ -207,11 +208,14 @@ class ModelManager:
             # Check prompt cache
             cached_prompt = await self.get_or_create_prompt(voice_meta)
 
-            chunks = split_text_into_chunks(text, max_chars=100)
-            if not chunks:
+            if disable_chunking:
                 chunks = [text]
-
-            logger.info(f"Synthesizing text for voice '{voice_meta.voice_id}' split into {len(chunks)} chunk(s): {chunks}")
+                logger.info(f"Chunking bypassed for voice '{voice_meta.voice_id}'. Synthesizing text as single 1 chunk ({len(text)} chars).")
+            else:
+                chunks = split_text_into_chunks(text, max_chars=100)
+                if not chunks:
+                    chunks = [text]
+                logger.info(f"Synthesizing text for voice '{voice_meta.voice_id}' split into {len(chunks)} chunk(s): {chunks}")
 
             base_kwargs = {
                 "speed": float(final_speed),
