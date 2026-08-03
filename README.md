@@ -81,7 +81,19 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ---
 
-## API Documentation
+## Testing in a Web Browser
+
+Once the server is running, open your web browser and navigate to:
+
+1. **OmniVoice Studio Web UI (`http://localhost:8000/`)**:
+   - Built-in interactive Web Studio interface.
+   - Select cloned voices from a dropdown, view reference transcripts and per-voice custom settings.
+   - Type prompt text, adjust speed, diffusion steps (`num_step`), and guidance scale (`guidance_scale`).
+   - Click **Generate Speech** to synthesize and listen to the audio directly in the built-in HTML5 player or download the file.
+
+2. **Swagger Interactive API Documentation (`http://localhost:8000/docs`)**:
+   - Interactive OpenAPI documentation interface.
+   - Click on any endpoint (e.g. `POST /api/v1/tts` or `POST /v1/audio/speech`), click **Try it out**, fill in parameters, and execute requests directly in your browser.
 
 ### 1. Synthesize Speech (Custom API)
 `POST /api/v1/tts` or `POST /synthesize`

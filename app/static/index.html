@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniVoice TTS Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --accent: #818cf8;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --success: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            padding-bottom: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .badge {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            font-size: 0.75rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        select, textarea, input {
+            width: 100%;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            color: var(--text-main);
+            padding: 0.875rem 1rem;
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        select:focus, textarea:focus, input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .range-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .range-value {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--accent);
+            min-width: 32px;
+        }
+
+        input[type="range"] {
+            padding: 0;
+            height: 6px;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+
+        .voice-info-panel {
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .voice-info-panel strong {
+            color: var(--text-main);
+        }
+
+        .btn-synthesize {
+            width: 100%;
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            padding: 1rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.4);
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-synthesize:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 25px -5px rgba(99, 102, 241, 0.5);
+        }
+
+        .btn-synthesize:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .audio-player-card {
+            margin-top: 2rem;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            display: none;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .audio-player-card.active {
+            display: flex;
+        }
+
+        audio {
+            width: 100%;
+            border-radius: 8px;
+        }
+
+        .downloads {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .download-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .links-bar {
+            margin-top: 1.5rem;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            font-size: 0.85rem;
+        }
+
+        .links-bar a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .links-bar a:hover {
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-title">
+                <div class="logo-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+                </div>
+                <div>
+                    <h1>OmniVoice Studio</h1>
+                    <span style="font-size: 0.8rem; color: var(--text-muted);">Zero-Shot Voice Cloning API</span>
+                </div>
+            </div>
+            <span class="badge" id="status-badge">System Online</span>
+        </div>
+
+        <div class="form-group">
+            <label for="voice-select">Select Cloned Voice</label>
+            <select id="voice-select">
+                <option value="">Loading voices...</option>
+            </select>
+        </div>
+
+        <div class="voice-info-panel" id="voice-info-panel">
+            <strong>Voice Details:</strong> <span id="voice-info-text">Select a voice to view reference transcript and configuration settings.</span>
+        </div>
+
+        <div class="form-group">
+            <label for="input-text">Text to Synthesize</label>
+            <textarea id="input-text" placeholder="Type text here to generate speech...">Tervehdys! Tämä on ääni-synteesi testi käyttäen OmniVoice mallia.</textarea>
+        </div>
+
+        <div class="controls-grid">
+            <div>
+                <label for="speed-range">Speed Factor</label>
+                <div class="range-container">
+                    <input type="range" id="speed-range" min="0.5" max="2.0" step="0.1" value="1.0" oninput="document.getElementById('speed-val').innerText = this.value">
+                    <span class="range-value" id="speed-val">1.0</span>
+                </div>
+            </div>
+
+            <div>
+                <label for="step-range">Diffusion Steps (16-40)</label>
+                <div class="range-container">
+                    <input type="range" id="step-range" min="16" max="40" step="2" value="32" oninput="document.getElementById('step-val').innerText = this.value">
+                    <span class="range-value" id="step-val">32</span>
+                </div>
+            </div>
+
+            <div>
+                <label for="guidance-range">CFG Guidance Scale</label>
+                <div class="range-container">
+                    <input type="range" id="guidance-range" min="1.0" max="4.0" step="0.5" value="2.0" oninput="document.getElementById('guidance-val').innerText = this.value">
+                    <span class="range-value" id="guidance-val">2.0</span>
+                </div>
+            </div>
+
+            <div>
+                <label for="format-select">Audio Format</label>
+                <select id="format-select">
+                    <option value="wav">WAV</option>
+                    <option value="mp3">MP3</option>
+                    <option value="flac">FLAC</option>
+                    <option value="ogg">OGG</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="btn-synthesize" id="btn-submit" onclick="generateSpeech()">
+            <div class="spinner" id="btn-spinner"></div>
+            <span id="btn-label">Generate Speech</span>
+        </button>
+
+        <div class="audio-player-card" id="audio-card">
+            <label>Generated Audio Output</label>
+            <audio id="audio-player" controls autoplay></audio>
+            <div class="downloads">
+                <a id="download-link" class="download-link" download="speech.wav">Download Audio</a>
+            </div>
+        </div>
+
+        <div class="links-bar">
+            <a href="/docs" target="_blank">Swagger API Docs (/docs)</a>
+            •
+            <a href="/health" target="_blank">Health Status (/health)</a>
+            •
+            <a href="/api/v1/voices" target="_blank">Voices Catalog (/api/v1/voices)</a>
+        </div>
+    </div>
+
+    <script>
+        let voicesList = [];
+
+        async function fetchVoices() {
+            try {
+                const res = await fetch('/api/v1/voices');
+                const data = await res.json();
+                voicesList = data.voices || [];
+                
+                const select = document.getElementById('voice-select');
+                select.innerHTML = '';
+                
+                if (voicesList.length === 0) {
+                    select.innerHTML = '<option value="">No voices found in storage/voices</option>';
+                    return;
+                }
+
+                voicesList.forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v.voice_id;
+                    opt.textContent = `${v.voice_id} ${v.settings.language ? '['+v.settings.language+']' : ''}`;
+                    select.appendChild(opt);
+                });
+
+                select.addEventListener('change', updateVoiceInfo);
+                updateVoiceInfo();
+            } catch (err) {
+                console.error("Failed to load voices:", err);
+                document.getElementById('voice-select').innerHTML = '<option value="">Error loading voices</option>';
+            }
+        }
+
+        function updateVoiceInfo() {
+            const select = document.getElementById('voice-select');
+            const selectedId = select.value;
+            const voice = voicesList.find(v => v.voice_id === selectedId);
+            
+            const panelText = document.getElementById('voice-info-text');
+            if (voice) {
+                const transcriptText = voice.transcript ? `"${voice.transcript}"` : 'No .txt file found';
+                const settingsText = JSON.stringify(voice.settings);
+                panelText.innerHTML = `<strong>Transcript:</strong> ${transcriptText} <br/><strong>Custom Settings:</strong> <code>${settingsText}</code>`;
+            } else {
+                panelText.innerText = 'No voice selected.';
+            }
+        }
+
+        async function generateSpeech() {
+            const voice = document.getElementById('voice-select').value;
+            const text = document.getElementById('input-text').value;
+            const speed = parseFloat(document.getElementById('speed-range').value);
+            const num_step = parseInt(document.getElementById('step-range').value);
+            const guidance_scale = parseFloat(document.getElementById('guidance-range').value);
+            const response_format = document.getElementById('format-select').value;
+
+            if (!voice) {
+                alert("Please select a voice!");
+                return;
+            }
+            if (!text.trim()) {
+                alert("Please enter text to synthesize!");
+                return;
+            }
+
+            const btn = document.getElementById('btn-submit');
+            const spinner = document.getElementById('btn-spinner');
+            const label = document.getElementById('btn-label');
+
+            btn.disabled = true;
+            spinner.style.display = 'block';
+            label.innerText = 'Synthesizing...';
+
+            try {
+                const response = await fetch('/api/v1/tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: text,
+                        voice: voice,
+                        speed: speed,
+                        num_step: num_step,
+                        guidance_scale: guidance_scale,
+                        response_format: response_format
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Synthesis failed');
+                }
+
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                
+                const audioPlayer = document.getElementById('audio-player');
+                const audioCard = document.getElementById('audio-card');
+                const downloadLink = document.getElementById('download-link');
+
+                audioPlayer.src = url;
+                downloadLink.href = url;
+                downloadLink.download = `speech_${voice}.${response_format}`;
+                audioCard.classList.add('active');
+
+                audioPlayer.play();
+            } catch (err) {
+                alert("Error: " + err.message);
+            } finally {
+                btn.disabled = false;
+                spinner.style.display = 'none';
+                label.innerText = 'Generate Speech';
+            }
+        }
+
+        // Fetch health & voices on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchVoices();
+        });
+    </script>
+</body>
+</html>
