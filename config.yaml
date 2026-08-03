@@ -1,0 +1,21 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1
+
+model:
+  name_or_path: "k2-fsa/OmniVoice"
+  device: "cuda"
+  dtype: "float16" # float16, float32, bfloat16
+  load_asr: false  # Explicitly disabled: Never load Whisper/ASR
+
+storage:
+  voices_dir: "storage/voices"
+  prompt_cache_dir: "storage/cache"
+
+default_gen_config:
+  language: "en"
+  speed: 1.0
+  num_step: 32
+  guidance_scale: 2.0
+  response_format: "wav" # wav, mp3, ogg, flac

@@ -1,0 +1,8 @@
+{
+  "language": "fi",
+  "speed": 1.0,
+  "num_step": 32,
+  "guidance_scale": 2.0,
+  "description": "Finnish voice sample with custom parameters",
+  "tags": ["finnish", "male", "cloned"]
+}
