@@ -119,8 +119,7 @@ async def synthesize_speech(request: TTSRequest):
             num_step=request.num_step,
             guidance_scale=request.guidance_scale,
             response_format=request.response_format or "wav",
-            seed=request.seed,
-            disable_chunking=request.disable_chunking or False
+            seed=request.seed
         )
         return Response(content=audio_bytes, media_type=mime_type)
     except Exception as e:

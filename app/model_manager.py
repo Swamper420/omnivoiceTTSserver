@@ -17,51 +17,6 @@ from app.voice_manager import VoiceMetadata
 logger = logging.getLogger(__name__)
 
 
-def split_text_into_chunks(text: str, max_chars: int = 100) -> List[str]:
-    """
-    Splits input text into chunks strictly adhering to `max_chars` limit (default 100 characters).
-    Packs whole words up to `max_chars`. If any single word/string exceeds `max_chars`, it is hard-split.
-    """
-    # Normalize newlines and tabs to single spaces
-    text = re.sub(r'[\r\n\t]+', ' ', text).strip()
-    if not text:
-        return []
-
-    words = text.split()
-    if not words:
-        return []
-
-    # 1. Expand any single word exceeding max_chars
-    expanded_words: List[str] = []
-    for w in words:
-        if len(w) <= max_chars:
-            expanded_words.append(w)
-        else:
-            for i in range(0, len(w), max_chars):
-                expanded_words.append(w[i:i + max_chars])
-
-    # 2. Pack words into chunks of max_chars
-    chunks: List[str] = []
-    current_chunk: List[str] = []
-    current_len = 0
-
-    for w in expanded_words:
-        needed_space = 1 if current_chunk else 0
-        if current_len + needed_space + len(w) <= max_chars:
-            current_chunk.append(w)
-            current_len += needed_space + len(w)
-        else:
-            if current_chunk:
-                chunks.append(" ".join(current_chunk))
-            current_chunk = [w]
-            current_len = len(w)
-
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
-
-    return chunks
-
-
 class ModelManager:
     def __init__(self):
         self.model = None
@@ -144,7 +99,7 @@ class ModelManager:
                 return None
         return None
 
-    def _generate_single_chunk(self, gen_kwargs: dict) -> np.ndarray:
+    def _generate_audio(self, gen_kwargs: dict) -> np.ndarray:
         with torch.inference_mode():
             output_audio = self.model.generate(**gen_kwargs)
         
@@ -178,8 +133,7 @@ class ModelManager:
         num_step: Optional[int] = None,
         guidance_scale: Optional[float] = None,
         response_format: str = "wav",
-        seed: Optional[int] = None,
-        disable_chunking: bool = False
+        seed: Optional[int] = None
     ) -> Tuple[bytes, str]:
         """
         Synthesizes text using specified voice_meta and generation options.
@@ -208,56 +162,35 @@ class ModelManager:
             # Check prompt cache
             cached_prompt = await self.get_or_create_prompt(voice_meta)
 
-            if disable_chunking:
-                chunks = [text]
-                logger.info(f"Chunking bypassed for voice '{voice_meta.voice_id}'. Synthesizing text as single 1 chunk ({len(text)} chars).")
-            else:
-                chunks = split_text_into_chunks(text, max_chars=100)
-                if not chunks:
-                    chunks = [text]
-                logger.info(f"Synthesizing text for voice '{voice_meta.voice_id}' split into {len(chunks)} chunk(s): {chunks}")
+            # Normalize whitespace
+            clean_text = re.sub(r'[\r\n\t]+', ' ', text).strip()
+            if not clean_text:
+                clean_text = text
 
-            base_kwargs = {
+            logger.info(f"Synthesizing speech for voice '{voice_meta.voice_id}' ({len(clean_text)} chars): '{clean_text[:60]}...'")
+
+            gen_kwargs = {
+                "text": clean_text,
                 "speed": float(final_speed),
                 "num_step": int(final_num_step),
                 "guidance_scale": float(final_guidance_scale)
             }
 
             if final_language:
-                base_kwargs["language"] = final_language
+                gen_kwargs["language"] = final_language
 
             if cached_prompt is not None:
-                base_kwargs["voice_clone_prompt"] = cached_prompt
+                gen_kwargs["voice_clone_prompt"] = cached_prompt
             else:
-                base_kwargs["ref_audio"] = str(voice_meta.audio_path)
+                gen_kwargs["ref_audio"] = str(voice_meta.audio_path)
                 if voice_meta.transcript:
-                    base_kwargs["ref_text"] = voice_meta.transcript
-
-            audio_chunks = []
+                    gen_kwargs["ref_text"] = voice_meta.transcript
 
             try:
-                for chunk_idx, chunk_text in enumerate(chunks):
-                    gen_kwargs = dict(base_kwargs)
-                    gen_kwargs["text"] = chunk_text
-
-                    if "voice_clone_prompt" in gen_kwargs and gen_kwargs["voice_clone_prompt"] is not None:
-                        try:
-                            gen_kwargs["voice_clone_prompt"] = copy.deepcopy(gen_kwargs["voice_clone_prompt"])
-                        except Exception:
-                            pass
-
-                    logger.info(f"Generating chunk {chunk_idx + 1}/{len(chunks)} ({len(chunk_text)} chars): '{chunk_text}'")
-
-                    audio_data = await loop.run_in_executor(self._executor, lambda kw=gen_kwargs: self._generate_single_chunk(kw))
-                    audio_chunks.append(audio_data)
+                combined_audio = await loop.run_in_executor(self._executor, lambda kw=gen_kwargs: self._generate_audio(kw))
             finally:
-                # Flush CUDA memory cache once after entire multi-chunk synthesis completes
+                # Flush CUDA memory cache post-synthesis
                 await loop.run_in_executor(self._executor, self._cleanup_cuda)
-
-            if len(audio_chunks) == 1:
-                combined_audio = audio_chunks[0]
-            else:
-                combined_audio = np.concatenate(audio_chunks, axis=0)
 
             combined_audio = np.ascontiguousarray(combined_audio, dtype=np.float32)
 
