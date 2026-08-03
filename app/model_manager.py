@@ -15,90 +15,47 @@ from app.voice_manager import VoiceMetadata
 logger = logging.getLogger(__name__)
 
 
-def split_text_into_chunks(text: str, max_chars: int = 100, max_sentences: int = 2) -> List[str]:
+def split_text_into_chunks(text: str, max_chars: int = 100) -> List[str]:
     """
-    Splits input text into chunks containing at most `max_sentences` sentences
-    and at most `max_chars` characters per chunk.
+    Splits input text into chunks strictly adhering to `max_chars` limit (default 100 characters).
+    Packs whole words up to `max_chars`. If any single word/string exceeds `max_chars`, it is hard-split.
     """
-    # Normalize newlines to spaces to prevent raw newline tokens in model generation
-    text = re.sub(r'[\r\n]+', ' ', text).strip()
+    # Normalize newlines and tabs to single spaces
+    text = re.sub(r'[\r\n\t]+', ' ', text).strip()
     if not text:
         return []
 
-    # 1. Split text into sentences (preserving punctuation)
-    raw_sentences = re.split(r'(?<=[.!?])\s+', text)
-    sentences = [s.strip() for s in raw_sentences if s.strip()]
-
-    if not sentences:
+    words = text.split()
+    if not words:
         return []
 
-    # 2. Break down any sentence exceeding max_chars into smaller clause/word sub-units
-    units: List[Tuple[str, bool]] = []  # List of (sub_unit_text, is_sentence_end)
-    for s in sentences:
-        if len(s) <= max_chars:
-            units.append((s, True))
+    # 1. Expand any single word exceeding max_chars
+    expanded_words: List[str] = []
+    for w in words:
+        if len(w) <= max_chars:
+            expanded_words.append(w)
         else:
-            # Sub-split long sentence by secondary punctuation like commas, semicolons, colons, dashes
-            clauses = re.split(r'(?<=[,;:\-—])\s+', s)
-            clauses = [c.strip() for c in clauses if c.strip()]
+            for i in range(0, len(w), max_chars):
+                expanded_words.append(w[i:i + max_chars])
 
-            sub_units: List[str] = []
-            for clause in clauses:
-                if len(clause) <= max_chars:
-                    sub_units.append(clause)
-                else:
-                    # Sub-split long clause by word boundaries
-                    words = clause.split()
-                    curr_words: List[str] = []
-                    curr_len = 0
-                    for w in words:
-                        needed = len(w) if not curr_words else len(w) + 1
-                        if curr_len + needed <= max_chars:
-                            curr_words.append(w)
-                            curr_len += needed
-                        else:
-                            if curr_words:
-                                sub_units.append(" ".join(curr_words))
-                            # Handle single word exceeding max_chars
-                            while len(w) > max_chars:
-                                sub_units.append(w[:max_chars])
-                                w = w[max_chars:]
-                            curr_words = [w]
-                            curr_len = len(w)
-                    if curr_words:
-                        sub_units.append(" ".join(curr_words))
-
-            for idx, sub_unit in enumerate(sub_units):
-                is_end = (idx == len(sub_units) - 1)
-                units.append((sub_unit, is_end))
-
-    # 3. Group units into chunks satisfying max_chars and max_sentences
+    # 2. Pack words into chunks of max_chars
     chunks: List[str] = []
-    curr_chunk: List[str] = []
-    curr_len = 0
-    curr_sentences = 0
+    current_chunk: List[str] = []
+    current_len = 0
 
-    for unit_text, is_sentence_end in units:
-        unit_len = len(unit_text)
-        space_len = 1 if curr_chunk else 0
+    for w in expanded_words:
+        needed_space = 1 if current_chunk else 0
+        if current_len + needed_space + len(w) <= max_chars:
+            current_chunk.append(w)
+            current_len += needed_space + len(w)
+        else:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+            current_chunk = [w]
+            current_len = len(w)
 
-        would_exceed_chars = (curr_len + space_len + unit_len > max_chars)
-        would_exceed_sentences = (curr_sentences >= max_sentences)
-
-        if would_exceed_chars or would_exceed_sentences:
-            if curr_chunk:
-                chunks.append(" ".join(curr_chunk))
-                curr_chunk = []
-                curr_len = 0
-                curr_sentences = 0
-
-        curr_chunk.append(unit_text)
-        curr_len += (1 if len(curr_chunk) > 1 else 0) + unit_len
-        if is_sentence_end:
-            curr_sentences += 1
-
-    if curr_chunk:
-        chunks.append(" ".join(curr_chunk))
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
 
     return chunks
 
@@ -238,7 +195,7 @@ class ModelManager:
             # Check prompt cache
             cached_prompt = await self.get_or_create_prompt(voice_meta)
 
-            chunks = split_text_into_chunks(text, max_chars=100, max_sentences=2)
+            chunks = split_text_into_chunks(text, max_chars=100)
             if not chunks:
                 chunks = [text]
 
