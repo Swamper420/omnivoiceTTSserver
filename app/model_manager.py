@@ -263,7 +263,9 @@ class ModelManager:
         return audio_bytes, mime_type
 
     def _encode_audio(self, audio_data: np.ndarray, samplerate: int, fmt: str) -> Tuple[bytes, str]:
-        import tempfile
+        import shutil
+        import subprocess
+
         fmt = fmt.lower().strip()
         
         # Ensure float32 audio data is finite and normalized within [-1.0, 1.0] to prevent codec clipping/overflow
@@ -271,56 +273,84 @@ class ModelManager:
         audio_data = np.clip(audio_data, -1.0, 1.0)
         audio_data = np.ascontiguousarray(audio_data, dtype=np.float32)
 
+        # 1. Always generate crash-free in-memory WAV first
         buffer = io.BytesIO()
+        sf.write(buffer, audio_data, samplerate, format="WAV")
+        buffer.seek(0)
+        wav_bytes = buffer.read()
 
         if fmt in {"wav", "wave"}:
-            sf.write(buffer, audio_data, samplerate, format="WAV")
-            buffer.seek(0)
-            return buffer.read(), "audio/wav"
+            return wav_bytes, "audio/wav"
 
         elif fmt in {"flac"}:
-            sf.write(buffer, audio_data, samplerate, format="FLAC")
-            buffer.seek(0)
-            return buffer.read(), "audio/flac"
+            try:
+                flac_buf = io.BytesIO()
+                sf.write(flac_buf, audio_data, samplerate, format="FLAC")
+                flac_buf.seek(0)
+                return flac_buf.read(), "audio/flac"
+            except Exception as e:
+                logger.warning(f"FLAC encoding failed ({e}), returning WAV.")
+                return wav_bytes, "audio/wav"
 
         elif fmt in {"ogg", "opus", "vorbis"}:
-            # CRITICAL: libsndfile has a known C segfault bug when writing OGG Vorbis into in-memory io.BytesIO buffers via sf_virtual_io.
-            # Writing to a real temporary file handle uses libsndfile's native C FILE* implementation, avoiding the crash.
-            tmp_path = None
+            # CRITICAL: libsndfile.so in PySoundFile has a C-level segmentation fault when encoding OGG directly on Linux.
+            # To guarantee process safety and prevent core dumps, convert the clean WAV bytes via external ffmpeg pipe or pydub.
+            if shutil.which("ffmpeg"):
+                try:
+                    cmd = [
+                        "ffmpeg", "-hide_banner", "-loglevel", "error",
+                        "-y", "-f", "wav", "-i", "pipe:0",
+                        "-c:a", "libvorbis", "-q:a", "4",
+                        "-f", "ogg", "pipe:1"
+                    ]
+                    proc = subprocess.run(cmd, input=wav_bytes, capture_output=True, timeout=15)
+                    if proc.returncode == 0 and proc.stdout:
+                        return proc.stdout, "audio/ogg"
+                    else:
+                        logger.warning(f"ffmpeg OGG encoding stderr: {proc.stderr.decode('utf-8', errors='ignore')}")
+                except Exception as e:
+                    logger.warning(f"ffmpeg OGG subprocess failed: {e}")
+
+            # Fallback to pydub if installed
             try:
-                with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp_file:
-                    tmp_path = Path(tmp_file.name)
-                
-                sf.write(tmp_path, audio_data, samplerate, format="OGG", subtype="VORBIS")
-                audio_bytes = tmp_path.read_bytes()
-                return audio_bytes, "audio/ogg"
+                from pydub import AudioSegment
+                seg = AudioSegment.from_wav(io.BytesIO(wav_bytes))
+                out_buf = io.BytesIO()
+                seg.export(out_buf, format="ogg", codec="libvorbis")
+                out_buf.seek(0)
+                return out_buf.read(), "audio/ogg"
             except Exception as e:
-                logger.warning(f"Soundfile OGG format export failed ({e}), falling back to WAV output.")
-                buffer = io.BytesIO()
-                sf.write(buffer, audio_data, samplerate, format="WAV")
-                buffer.seek(0)
-                return buffer.read(), "audio/wav"
-            finally:
-                if tmp_path and tmp_path.exists():
-                    try:
-                        tmp_path.unlink()
-                    except Exception:
-                        pass
+                logger.warning(f"pydub OGG conversion failed: {e}")
+
+            logger.warning("OGG conversion tools unavailable or failed. Falling back to WAV output.")
+            return wav_bytes, "audio/wav"
 
         elif fmt in {"mp3"}:
+            if shutil.which("ffmpeg"):
+                try:
+                    cmd = [
+                        "ffmpeg", "-hide_banner", "-loglevel", "error",
+                        "-y", "-f", "wav", "-i", "pipe:0",
+                        "-c:a", "libmp3lame", "-q:a", "2",
+                        "-f", "mp3", "pipe:1"
+                    ]
+                    proc = subprocess.run(cmd, input=wav_bytes, capture_output=True, timeout=15)
+                    if proc.returncode == 0 and proc.stdout:
+                        return proc.stdout, "audio/mpeg"
+                except Exception as e:
+                    logger.warning(f"ffmpeg MP3 subprocess failed: {e}")
+
+            import tempfile
             tmp_path = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
                     tmp_path = Path(tmp_file.name)
                 sf.write(tmp_path, audio_data, samplerate, format="MP3")
-                audio_bytes = tmp_path.read_bytes()
-                return audio_bytes, "audio/mpeg"
+                mp3_bytes = tmp_path.read_bytes()
+                return mp3_bytes, "audio/mpeg"
             except Exception as e:
-                logger.warning(f"Soundfile MP3 format export failed ({e}), falling back to WAV output.")
-                buffer = io.BytesIO()
-                sf.write(buffer, audio_data, samplerate, format="WAV")
-                buffer.seek(0)
-                return buffer.read(), "audio/wav"
+                logger.warning(f"Soundfile MP3 format export failed ({e}), returning WAV output.")
+                return wav_bytes, "audio/wav"
             finally:
                 if tmp_path and tmp_path.exists():
                     try:
@@ -329,8 +359,6 @@ class ModelManager:
                         pass
 
         # Default fallback to WAV
-        sf.write(buffer, audio_data, samplerate, format="WAV")
-        buffer.seek(0)
-        return buffer.read(), "audio/wav"
+        return wav_bytes, "audio/wav"
 
 model_manager = ModelManager()
