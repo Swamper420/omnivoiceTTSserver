@@ -4,10 +4,16 @@ server:
   workers: 1
 
 model:
-  name_or_path: "k2-fsa/OmniVoice"
-  device: "cuda"
-  dtype: "float16" # float16, float32, bfloat16
-  load_asr: false  # Explicitly disabled: Never load Whisper/ASR
+  # Quantized GGUF backend (omnivoice.cpp). Switch size with one knob:
+  # F32 | BF16 | Q8_0 | Q4_K_M  (default Q4_K_M = smallest, ~407MB + ~252MB)
+  repo_id: "Serveurperso/OmniVoice-GGUF"
+  quant: "Q4_K_M"
+  # Optional explicit overrides (default derived from quant above):
+  # base_file: "omnivoice-base-Q4_K_M.gguf"
+  # tokenizer_file: "omnivoice-tokenizer-Q4_K_M.gguf"
+  models_dir: "models"
+  binary: "omnivoice-tts" # omnivoice.cpp binary on PATH or absolute path
+  device: "cuda" # display only; runtime picks backend via GGML_BACKEND (CUDA0/Vulkan0/Metal/CPU)
 
 storage:
   voices_dir: "storage/voices"
