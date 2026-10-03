@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, FileResponse
 from pathlib import Path
-import shutil
+import torch
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -73,7 +73,7 @@ async def health_check():
         model_loaded=model_manager.is_loaded,
         device=config.device,
         whisper_loaded=False,  # Explicitly verification that Whisper is never loaded
-        cuda_available=shutil.which("nvidia-smi") is not None,
+        cuda_available=torch.cuda.is_available(),
         voices_count=len(voice_manager.voices)
     )
 

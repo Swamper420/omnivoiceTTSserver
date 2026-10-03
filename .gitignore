@@ -216,7 +216,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# Local GGUF weights (fetched from Serveurperso/OmniVoice-GGUF)
-models/*.gguf
-storage/cache/

@@ -3,5 +3,7 @@ uvicorn[standard]
 pydantic
 pyyaml
 soundfile
+torch
+torchaudio
 numpy
-huggingface_hub
+omnivoice
