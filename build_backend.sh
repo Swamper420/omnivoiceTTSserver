@@ -27,8 +27,28 @@ pick_backend() {
 BACKEND=$(pick_backend)
 echo "Backend: $BACKEND (override: $0 --cpu|--cuda|--vulkan)"
 
+# nvcc lags behind new GCC/glibc headers (e.g. CUDA 13.1 + GCC 15 fails
+# on mathcalls.h rsqrt). Retry with an older host compiler when present.
+build_cuda() {
+    if ./buildcuda.sh; then
+        return 0
+    fi
+    for cxx in g++-13 g++-12 g++-14 gcc-13 gcc-12; do
+        if command -v "$cxx" >/dev/null 2>&1; then
+            echo "CUDA build failed, retrying with NVCC_CCBIN=$cxx ..."
+            if NVCC_CCBIN="$cxx" ./buildcuda.sh; then
+                return 0
+            fi
+        fi
+    done
+    echo "ERROR: CUDA build failed. Options:" >&2
+    echo "  sudo apt install -y g++-13   # then re-run $0" >&2
+    echo "  $0 --cpu                    # CPU fallback, always works" >&2
+    return 1
+}
+
 case "$BACKEND" in
-    cuda) ./buildcuda.sh ;;
+    cuda) build_cuda ;;
     vulkan) ./buildvulkan.sh ;;
     *) ./buildcpu.sh ;;
 esac
