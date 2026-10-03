@@ -39,6 +39,8 @@ class ModelManager:
 
     def resolve_binary(self) -> str:
         candidates = [config.tts_binary, "omnivoice-tts",
+                      "omnivoice.cpp/build/bin/omnivoice-tts",
+                      "omnivoice.cpp/build/omnivoice-tts",
                       "/app/omnivoice.cpp/build/bin/omnivoice-tts",
                       "/app/omnivoice.cpp/build/omnivoice-tts",
                       "build/bin/omnivoice-tts", "build/omnivoice-tts"]
@@ -47,8 +49,8 @@ class ModelManager:
             if found:
                 return found
         raise RuntimeError(
-            "omnivoice-tts binary not found. Build omnivoice.cpp "
-            "(./buildcuda.sh) or set model.binary / TTS_BINARY.")
+            "omnivoice-tts binary not found. Run ./build_backend.sh "
+            "(clones + builds omnivoice.cpp) or set model.binary / TTS_BINARY.")
 
     def ensure_models(self) -> Tuple[Path, Path]:
         from huggingface_hub import hf_hub_download
